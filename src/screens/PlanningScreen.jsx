@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import TripCard from '../components/TripCard'
 import NewTripModal from '../components/NewTripModal'
 import EmptyState from '../components/EmptyState'
+import { useTrips } from '../hooks/useTrips'
+import { totalOrcamento } from '../constants'
 
 const EMOJI_BY_TYPE = {
   praia: '🏖️',
@@ -12,45 +14,16 @@ const EMOJI_BY_TYPE = {
   cruzeiro: '🚢',
 }
 
-const SAMPLE_TRIPS = [
-  {
-    id: 1,
-    destino: 'Florianópolis',
-    tipo: 'praia',
-    dataInicio: '2026-01-10',
-    dataFim: '2026-01-20',
-    orcamento: {
-      acomodacao: 1800,
-      transporte: 600,
-      alimentacao: 900,
-      lazer: 700,
-      compras: 500,
-    },
-    participantes: ['Roque', 'Josbi'],
-    atividades: ['Praia da Joaquina', 'Lagoa da Conceição', 'Centro Histórico'],
-    status: 'planejando',
-  },
-]
-
-export default function PlanningScreen({ onStartTrip }) {
-  const [trips, setTrips] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ferias_trips')
-      return saved ? JSON.parse(saved) : SAMPLE_TRIPS
-    } catch { return SAMPLE_TRIPS }
-  })
+export default function PlanningScreen({ onStartTrip, user, authLoading, onSignIn, onSignOut }) {
+  const { trips, addTrip, updateTrip, deleteTrip } = useTrips(user)
   const [showModal, setShowModal] = useState(false)
   const [editingTrip, setEditingTrip] = useState(null)
 
-  useEffect(() => {
-    try { localStorage.setItem('ferias_trips', JSON.stringify(trips)) } catch {}
-  }, [trips])
-
   const handleSaveTrip = (tripData) => {
     if (editingTrip) {
-      setTrips(trips.map(t => t.id === editingTrip.id ? { ...tripData, id: editingTrip.id } : t))
+      updateTrip(editingTrip.id, tripData)
     } else {
-      setTrips([...trips, { ...tripData, id: Date.now() }])
+      addTrip(tripData)
     }
     setShowModal(false)
     setEditingTrip(null)
@@ -62,7 +35,7 @@ export default function PlanningScreen({ onStartTrip }) {
   }
 
   const handleDelete = (id) => {
-    setTrips(trips.filter(t => t.id !== id))
+    deleteTrip(id)
   }
 
   const handleNewTrip = () => {
@@ -100,29 +73,57 @@ export default function PlanningScreen({ onStartTrip }) {
               <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Planeje sua próxima aventura</div>
             </div>
           </div>
-          <button
-            onClick={handleNewTrip}
-            style={{
-              background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-              color: 'white',
-              border: 'none',
-              borderRadius: 12,
-              padding: '10px 20px',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              transition: 'all 0.2s',
-              boxShadow: '0 4px 12px rgba(59,130,246,0.4)',
-            }}
-            onMouseOver={e => e.currentTarget.style.transform = 'translateY(-1px)'}
-            onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <span style={{ fontSize: 18 }}>+</span>
-            Nova Viagem
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {!authLoading && (
+              user ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {user.photoURL && (
+                    <img src={user.photoURL} alt="" style={{ width: 28, height: 28, borderRadius: '50%' }} />
+                  )}
+                  <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.displayName || user.email}
+                  </span>
+                  <button onClick={onSignOut} style={{
+                    background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)',
+                    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
+                    padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+                  }}>Sair</button>
+                </div>
+              ) : (
+                <button onClick={onSignIn} style={{
+                  background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.85)',
+                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10,
+                  padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  🔗 Entrar com Google
+                </button>
+              )
+            )}
+            <button
+              onClick={handleNewTrip}
+              style={{
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 12,
+                padding: '10px 20px',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                transition: 'all 0.2s',
+                boxShadow: '0 4px 12px rgba(59,130,246,0.4)',
+              }}
+              onMouseOver={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+              onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
+            >
+              <span style={{ fontSize: 18 }}>+</span>
+              Nova Viagem
+            </button>
+          </div>
         </div>
       </div>
 
@@ -142,7 +143,7 @@ export default function PlanningScreen({ onStartTrip }) {
               { label: 'Finalizadas', value: tripsFinalizadas.length, icon: '✅', color: '#8b5cf6' },
               {
                 label: 'Orçamento Total',
-                value: `R$ ${trips.reduce((sum, t) => sum + (t.orcamento || 0), 0).toLocaleString('pt-BR')}`,
+                value: `R$ ${trips.reduce((sum, t) => sum + totalOrcamento(t.orcamento), 0).toLocaleString('pt-BR')}`,
                 icon: '💰',
                 color: '#f59e0b'
               },

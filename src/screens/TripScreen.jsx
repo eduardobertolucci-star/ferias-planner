@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { CATEGORIAS, totalOrcamento } from '../constants'
+import { useLancamentos } from '../hooks/useLancamentos'
 
 const CAT_OUTRO = { value: 'outro', label: 'Outro', emoji: '📌', color: '#6b7280' }
 const TODAS_CATS = [...CATEGORIAS, CAT_OUTRO]
@@ -12,6 +13,9 @@ const ESTILOS_MAPA = [
   { id: 'voyager',  label: 'Claro',   emoji: '☀️', url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',        attribution: '© OpenStreetMap © CARTO' },
   { id: 'topo',     label: 'Relevo',  emoji: '⛰️', url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',                               attribution: '© OpenTopoMap' },
 ]
+
+// Posição inicial do mapa, antes do destino ser localizado
+const SAO_PAULO = { lat: -23.5505, lon: -46.6333 }
 
 // ─── Geocode via Nominatim ────────────────────────────────────────────────────
 async function geocode(query) {
@@ -82,17 +86,21 @@ function TripMap({ destino, waypoints }) {
       .finally(() => setLoading(false))
   }, [busca])
 
-  // Init / update mapa
+  // Init do mapa — abre sempre em São Paulo, independente do destino buscado
   useEffect(() => {
-    if (!coords || !mapRef.current || !window.L) return
+    if (leafletMap.current || !mapRef.current || !window.L) return
     const L = window.L
     const estiloObj = ESTILOS_MAPA.find(e => e.id === estilo) || ESTILOS_MAPA[0]
 
-    if (!leafletMap.current) {
-      leafletMap.current = L.map(mapRef.current, { zoomControl: false }).setView([coords.lat, coords.lon], zoom)
-      L.control.zoom({ position: 'topright' }).addTo(leafletMap.current)
-      tileRef.current = L.tileLayer(estiloObj.url, { attribution: estiloObj.attribution, maxZoom: 19 }).addTo(leafletMap.current)
-    }
+    leafletMap.current = L.map(mapRef.current, { zoomControl: false }).setView([SAO_PAULO.lat, SAO_PAULO.lon], zoom)
+    L.control.zoom({ position: 'topright' }).addTo(leafletMap.current)
+    tileRef.current = L.tileLayer(estiloObj.url, { attribution: estiloObj.attribution, maxZoom: 19 }).addTo(leafletMap.current)
+  }, [])
+
+  // Voa até o destino assim que o geocode resolve
+  useEffect(() => {
+    if (!coords || !leafletMap.current || !window.L) return
+    const L = window.L
 
     // Marcador principal (só se não houver waypoints)
     if (waypoints.length === 0) {
@@ -102,7 +110,7 @@ function TripMap({ destino, waypoints }) {
       } else {
         markersRef.current[0].setLatLng([coords.lat, coords.lon])
       }
-      leafletMap.current.setView([coords.lat, coords.lon], zoom)
+      leafletMap.current.flyTo([coords.lat, coords.lon], zoom)
     }
   }, [coords])
 
@@ -194,18 +202,18 @@ function TripMap({ destino, waypoints }) {
           opacity: 1;
         }
       `}</style>
-      {loading ? (
-        <div style={{ height: 340, background: 'rgba(23,37,84,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <div ref={mapRef} style={{ height: 340, width: '100%' }} />
+
+      {loading && (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(23,37,84,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, pointerEvents: 'none' }}>
           <div style={{ fontSize: 36, animation: 'spin 1.5s linear infinite' }}>🌍</div>
           <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>Localizando {busca}...</div>
         </div>
-      ) : error ? (
-        <div style={{ height: 240, background: 'rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <div style={{ fontSize: 32 }}>🗺️</div>
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Nenhum resultado para "{busca}"</div>
+      )}
+      {error && !loading && (
+        <div style={{ position: 'absolute', bottom: 12, right: 12, zIndex: 1000, background: 'rgba(23,37,84,0.88)', backdropFilter: 'blur(8px)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 10, padding: '7px 13px' }}>
+          <span style={{ color: '#f87171', fontSize: 12 }}>Nenhum resultado para "{busca}"</span>
         </div>
-      ) : (
-        <div ref={mapRef} style={{ height: 340, width: '100%' }} />
       )}
 
       {/* Barra superior — visível só no hover (ou quando editando) */}
@@ -467,9 +475,9 @@ function usePersistedState(key, defaultValue) {
   return [state, setState]
 }
 
-export default function TripScreen({ trip, onBack }) {
+export default function TripScreen({ trip, onBack, user }) {
   const key = `trip_${trip.id}`
-  const [lancamentos, setLancamentos] = usePersistedState(`${key}_lancamentos`, [])
+  const { lancamentos, addLancamento, deleteLancamento } = useLancamentos(user, trip.id)
   const [waypoints, setWaypoints]     = usePersistedState(`${key}_waypoints`, [])
   const [showForm, setShowForm]       = useState(false)
   const [form, setForm] = useState({
@@ -484,7 +492,7 @@ export default function TripScreen({ trip, onBack }) {
 
   const handleAdd = () => {
     if (!form.descricao.trim() || !form.valor) return
-    setLancamentos([{ id: Date.now(), ...form, valor: Number(form.valor) }, ...lancamentos])
+    addLancamento({ ...form, valor: Number(form.valor) })
     setForm({ descricao: '', valor: '', categoria: form.categoria, data: form.data })
     setShowForm(false)
   }
@@ -639,7 +647,7 @@ export default function TripScreen({ trip, onBack }) {
                     <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 2 }}>{cat.label} · {l.data.split('-').reverse().join('/')}</div>
                   </div>
                   <div style={{ color: '#fb923c', fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>R$ {l.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                  <button onClick={() => setLancamentos(ls => ls.filter(x => x.id !== l.id))} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 18, padding: '4px', borderRadius: 6 }}
+                  <button onClick={() => deleteLancamento(l.id)} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 18, padding: '4px', borderRadius: 6 }}
                     onMouseOver={e => e.currentTarget.style.color = '#f87171'}
                     onMouseOut={e => e.currentTarget.style.color = 'rgba(255,255,255,0.3)'}
                   >×</button>
